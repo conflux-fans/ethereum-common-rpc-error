@@ -1,68 +1,78 @@
-const { provider, wallet, TARGET_ADDRESS, checkError, wait } = require('./init');
+const { parse } = require('dotenv');
+const { provider, wallet, TARGET_ADDRESS, checkError, wait, chainId, parseUnits } = require('./init');
 const _ = require('lodash');
 
-test('big nonce', async () => {
+test('same nonce', async () => {
     let nonce = await provider.getTransactionCount(wallet.address);
     let random = _.random(1000, 10000);
     let txMeta = {
+      type: 0,
       to: TARGET_ADDRESS,
-      value: 1000,
+      value: 1,
       nonce: nonce + random,
-        // nonce: nonce + 100,
+      // nonce: nonce + 100,
+      gasLimit: 21000,
+      gasPrice: 1,
+      chainId,
     };
-    txMeta = await wallet.populateTransaction(txMeta);
   
     let raw = await wallet.signTransaction(txMeta);
     try {
       let res = await wallet.provider.send('eth_sendRawTransaction', [raw]);
       let res1 = await wallet.provider.send('eth_sendRawTransaction', [raw]);
+      throw new Error('should not reach here');
     } catch (e) {
         checkError(e, {code: -32000, message: 'already known'});
     }
 });
 
-  //  { "code": -32000, "message": "failed with 50000000 gas: insufficient funds for gas * price + value: address 0x3D69D968e3673e188B2D2d42b6a385686186258f have 0 want 1000" }
-
-  test('big nonce 2', async () => {
+test('same nonce 2', async () => {
     let nonce = await provider.getTransactionCount(wallet.address);
     let random = _.random(1000, 10000);
+    nonce = nonce + random;
+
     let txMeta = {
+      type: 0,
       to: TARGET_ADDRESS,
       value: 1000,
       nonce: nonce + random,
-        // nonce: nonce + 100,
+      gasLimit: 21000,
+      gasPrice: parseUnits('1', 'gwei'),
+      chainId,
     };
-    txMeta = await wallet.populateTransaction(txMeta);
-  
-    let raw = await wallet.signTransaction(txMeta);
+
     try {
+      let raw = await wallet.signTransaction(txMeta);
       let res = await wallet.provider.send('eth_sendRawTransaction', [raw]);
-      await wait(5000);
+
+      txMeta.value = 1;
+      raw = await wallet.signTransaction(txMeta);
       let res1 = await wallet.provider.send('eth_sendRawTransaction', [raw]);
+      throw new Error('should not reach here');
     } catch (e) {
         checkError(e, {code: -32000, message: 'replacement transaction underpriced'});
     }
 });
 
 test('small nonce', async () => {
+  let nonce = await provider.getTransactionCount(wallet.address);
   let txMeta = {
+    type: 0,
+    nonce: nonce - 1,
+    gasLimit: 21000,
+    gasPrice: 1,
+    chainId,
     to: TARGET_ADDRESS,
     value: 1000,
   };
-  txMeta = await wallet.populateTransaction(txMeta);
 
   let raw = await wallet.signTransaction(txMeta);
   try {
     let hash = await wallet.provider.send('eth_sendRawTransaction', [raw]);
-    while(true) {
-      let res = await wallet.provider.getTransactionReceipt(hash);
-      if (res) {
-        break;
-      }
-      await wait(2000);
-    }
-    let res1 = await wallet.provider.send('eth_sendRawTransaction', [raw]);
+    throw new Error('should not reach here');
   } catch (e) {
-      checkError(e, {code: -32000, message: 'replacement transaction underpriced'});
+    let error = e.error || e.info.error;
+    expect(error.code).toBe(-32000);
+    expect(error.message.startsWith('nonce too low')).toBeTruthy();
   }
 });
